@@ -1,6 +1,7 @@
 /**
  * Task Tracker Kuliah v2 - REST API Client Vanilla JS
- * Arsitektur Frontend: Helper Fetch Terpusat & State Management
+ * Arsitektur Frontend: Helper Fetch Terpusat, State Management,
+ * Optimistic UI Updates dengan Rollback, Debounce Search, dan Offline Resilience
  */
 
 // 1. Inisialisasi State Aplikasi
@@ -58,7 +59,47 @@ async function api(endpoint, options = {}) {
   return data;
 }
 
-// 3. Pemuatan Data Paralel via Promise.all
+// 3. UI Toast Notification Helper (Feedback Interaktif Non-Blocking)
+/**
+ * Menampilkan pesan toast mengambang untuk feedback visual (misal saat rollback)
+ * @param {string} message - Pesan notifikasi
+ * @param {'warning' | 'error' | 'success'} [type='warning'] - Tipe notifikasi
+ */
+function showToast(message, type = 'warning') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const icons = {
+    warning: '⚠️',
+    error: '❌',
+    success: '✅',
+  };
+
+  const toast = document.createElement('div');
+  toast.className = `toast-card toast-${type}`;
+
+  const iconSpan = document.createElement('span');
+  iconSpan.textContent = icons[type] || 'ℹ️';
+
+  const textSpan = document.createElement('span');
+  textSpan.textContent = message; // Safe textContent XSS-free
+
+  toast.appendChild(iconSpan);
+  toast.appendChild(textSpan);
+  container.appendChild(toast);
+
+  // Otomatis hapus setelah 3.5 detik
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 300);
+  }, 3500);
+}
+
+// 4. Pemuatan Data Paralel via Promise.all
 /**
  * Memuat data awal mata kuliah dan daftar tugas secara paralel
  * Menangani 3 state tampilan: loading/skeleton, error dengan retry, dan sukses
@@ -114,10 +155,9 @@ function populateMatkulDropdown(matkulList) {
   });
 }
 
-// 4. Form Submission, Validasi & Feedback Server 400
+// 5. Form Submission, Validasi Sisi Klien & Feedback Server 400
 /**
  * Mengatur event listener submit form tugas baru
- * Meliputi validasi sisi klien, penonaktifan tombol, dan penanganan status 400
  */
 function setupFormSubmission() {
   const form = document.getElementById('form-tugas');
@@ -190,6 +230,7 @@ function setupFormSubmission() {
       // Reset field form
       form.reset();
       hideError();
+      showToast('Tugas baru berhasil ditambahkan!', 'success');
     } catch (err) {
       console.error('[Form] Gagal menambahkan tugas:', err);
       // Tangani respon status 400 dari backend atau error jaringan
@@ -207,10 +248,10 @@ function setupFormSubmission() {
   });
 }
 
-// 5. Event Delegation untuk Mutasi State (PATCH & DELETE)
+// 6. Event Delegation: Mutasi State (PATCH & DELETE) dengan Optimistic UI Rollback
 /**
  * Mengatur satu event listener terpusat pada parent <ul> menggunakan closest()
- * Menangani toggle status checkbox (PATCH) dan hapus tugas (DELETE)
+ * Menerapkan pola Optimistic UI Updates: UI diubah seketika, jika gagal di-rollback
  */
 function setupTaskListDelegation() {
   const taskListEl = document.getElementById('task-list');
@@ -228,11 +269,13 @@ function setupTaskListDelegation() {
     const task = state.tugas.find((t) => t.id === taskId);
     if (!task) return;
 
+    // Simpan status lama untuk keperluan rollback jika server gagal
     const previousStatus = task.selesai;
     const nextStatus = checkbox.checked;
 
-    // Kunci checkbox selama request berjalan
-    checkbox.disabled = true;
+    // Optimistic Update: perbarui state dan antarmuka seketika
+    task.selesai = nextStatus;
+    render();
 
     try {
       const updatedTask = await api(`/api/tugas/${taskId}`, {
@@ -240,27 +283,21 @@ function setupTaskListDelegation() {
         body: JSON.stringify({ selesai: nextStatus }),
       });
 
-      // Update state dari response server
+      // Sinkronisasi data terkini dari server
       if (updatedTask && typeof updatedTask.selesai === 'boolean') {
         task.selesai = updatedTask.selesai;
-      } else {
-        task.selesai = nextStatus;
       }
-      render();
     } catch (err) {
-      console.error(`[Task] Gagal memperbarui status tugas ${taskId}:`, err);
-      // Rollback status UI & state
-      checkbox.checked = previousStatus;
+      console.error(`[Optimistic Rollback] Gagal sinkronisasi status tugas ${taskId}:`, err);
+      // Rollback ke state sebelumnya jika request gagal
       task.selesai = previousStatus;
       render();
 
-      alert(
+      const errMsg =
         err instanceof TypeError
-          ? 'Koneksi gagal atau offline. Perubahan status dibatalkan.'
-          : err.message || 'Gagal memperbarui status tugas.'
-      );
-    } finally {
-      checkbox.disabled = false;
+          ? 'Koneksi offline: Perubahan status tugas dibatalkan (rollback).'
+          : err.message || 'Gagal memperbarui status tugas (rollback).';
+      showToast(errMsg, 'warning');
     }
   });
 
@@ -276,30 +313,68 @@ function setupTaskListDelegation() {
     const taskIndex = state.tugas.findIndex((t) => t.id === taskId);
     if (taskIndex === -1) return;
 
-    deleteBtn.disabled = true;
+    // Simpan snapshot untuk keperluan rollback jika server gagal
+    const deletedTask = state.tugas[taskIndex];
+
+    // Optimistic Update: hapus seketika dari state dan render
+    state.tugas.splice(taskIndex, 1);
+    render();
 
     try {
       // DELETE request mengharapkan respons HTTP 204 No Content
       await api(`/api/tugas/${taskId}`, {
         method: 'DELETE',
       });
-
-      // Hapus dari state lokal dan render ulang
-      state.tugas.splice(taskIndex, 1);
-      render();
+      showToast('Tugas berhasil dihapus.', 'success');
     } catch (err) {
-      console.error(`[Task] Gagal menghapus tugas ${taskId}:`, err);
-      deleteBtn.disabled = false;
-      alert(
+      console.error(`[Optimistic Rollback] Gagal menghapus tugas ${taskId}:`, err);
+      // Rollback: kembalikan tugas ke posisi semula
+      state.tugas.splice(taskIndex, 0, deletedTask);
+      render();
+
+      const errMsg =
         err instanceof TypeError
-          ? 'Koneksi gagal atau offline. Tugas tidak dapat dihapus.'
-          : err.message || 'Gagal menghapus tugas.'
-      );
+          ? 'Koneksi offline: Penghapusan tugas dibatalkan (rollback).'
+          : err.message || 'Gagal menghapus tugas (rollback).';
+      showToast(errMsg, 'error');
     }
   });
 }
 
-// 6. Toolbar Filter (Semua / Aktif / Selesai)
+// 7. Bonus: Debounce Utility & Search Input Filter (300ms)
+/**
+ * Debounce helper function untuk menunda eksekusi hingga delay berlalu
+ * @param {Function} func
+ * @param {number} delay
+ */
+function debounce(func, delay = 300) {
+  let timeoutId;
+  return function (...args) {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      func.apply(this, args);
+    }, delay);
+  };
+}
+
+/**
+ * Mengatur filter pencarian berbasis debounce
+ */
+function setupSearchInput() {
+  const searchInput = document.getElementById('input-search');
+  if (!searchInput) return;
+
+  const handleSearch = debounce((query) => {
+    state.searchQuery = query;
+    render();
+  }, 300);
+
+  searchInput.addEventListener('input', (e) => {
+    handleSearch(e.target.value);
+  });
+}
+
+// 8. Toolbar Filter Status (Semua / Aktif / Selesai)
 /**
  * Mengatur filter button toolbar
  */
@@ -325,7 +400,7 @@ function setupFilterToolbar() {
   });
 }
 
-// 7. Centralized UI Rendering & State Management
+// 9. Centralized UI Rendering & State Management
 /**
  * Merender seluruh komponen antarmuka berdasarkan state terkini
  */
@@ -468,10 +543,11 @@ function renderTaskList(container, tasks) {
 
 // Inisialisasi awal saat dokumen selesai dimuat
 document.addEventListener('DOMContentLoaded', () => {
-  // Setup handler form & delegasi event
+  // Setup seluruh listener
   setupFormSubmission();
   setupTaskListDelegation();
   setupFilterToolbar();
+  setupSearchInput();
 
   // Tombol retry saat error
   const retryBtn = document.getElementById('btn-retry');
