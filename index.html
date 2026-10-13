@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Task Tracker Kuliah v2 — REST API Client</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="mock-api.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header Aplikasi -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-icon">📚</div>
+        <div>
+          <h1 class="brand-title">Task Tracker Kuliah v2</h1>
+          <p class="brand-subtitle">REST API Client Vanilla JS &amp; State Management</p>
+        </div>
+      </div>
+
+      <!-- Simulasi Mode Jaringan -->
+      <div class="network-control">
+        <label for="network-mode" class="network-label">Simulasi Jaringan:</label>
+        <select id="network-mode" class="network-select" aria-label="Simulasi mode koneksi jaringan">
+          <option value="normal">⚡ Normal</option>
+          <option value="lambat">⏳ Lambat (1.5s)</option>
+          <option value="offline">📡 Offline</option>
+        </select>
+      </div>
+    </header>
+
+    <!-- Layout Utama -->
+    <main class="main-content">
+      <!-- Kolom Kiri: Form Input Tugas Baru -->
+      <section class="card form-card" aria-labelledby="form-heading">
+        <div class="card-header">
+          <h2 id="form-heading" class="card-title">Tambah Tugas Baru</h2>
+          <p class="card-desc">Tambahkan tugas kuliah baru ke dalam daftar sistem.</p>
+        </div>
+
+        <form id="form-tugas" class="task-form" novalidate>
+          <div class="form-group">
+            <label for="input-judul" class="form-label">Judul Tugas <span class="required">*</span></label>
+            <input
+              type="text"
+              id="input-judul"
+              class="form-input"
+              placeholder="Misal: Praktikum Modul 2..."
+              autocomplete="off"
+            >
+            <small class="field-hint">Minimal 3 karakter</small>
+          </div>
+
+          <div class="form-group">
+            <label for="select-matkul" class="form-label">Mata Kuliah <span class="required">*</span></label>
+            <select id="select-matkul" class="form-select">
+              <option value="">-- Memuat Mata Kuliah... --</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="input-deadline" class="form-label">Tenggat Waktu (Deadline) <span class="required">*</span></label>
+            <input
+              type="date"
+              id="input-deadline"
+              class="form-input"
+            >
+          </div>
+
+          <!-- Pesan Error Validasi Form (400 Bad Request / Client Error) -->
+          <div id="form-error" class="alert-box alert-error hidden" role="alert">
+            <span class="alert-icon">⚠️</span>
+            <span id="form-error-text" class="alert-text"></span>
+          </div>
+
+          <button type="submit" id="btn-submit" class="btn btn-primary btn-block">
+            <span class="btn-spinner hidden" aria-hidden="true"></span>
+            <span class="btn-text">Tambah Tugas</span>
+          </button>
+        </form>
+      </section>
+
+      <!-- Kolom Kanan: Daftar Tugas & State Container -->
+      <section class="card list-card" aria-labelledby="list-heading">
+        <div class="card-header list-header-flex">
+          <div>
+            <h2 id="list-heading" class="card-title">Daftar Tugas</h2>
+            <p class="card-desc">Kelola dan pantau progres pengerjaan tugas kuliah.</p>
+          </div>
+          <div class="counter-badge" id="task-counter">
+            0 tugas aktif
+          </div>
+        </div>
+
+        <!-- Toolbar Pencarian dan Filter -->
+        <div class="list-toolbar">
+          <div class="search-box">
+            <span class="search-icon" aria-hidden="true">🔍</span>
+            <input
+              type="text"
+              id="input-search"
+              class="search-input"
+              placeholder="Cari tugas atau mata kuliah..."
+              autocomplete="off"
+            >
+          </div>
+
+          <div class="filter-group" id="filter-toolbar" role="group" aria-label="Filter status tugas">
+            <button type="button" class="btn-filter active" data-filter="semua">Semua</button>
+            <button type="button" class="btn-filter" data-filter="aktif">Aktif</button>
+            <button type="button" class="btn-filter" data-filter="selesai">Selesai</button>
+          </div>
+        </div>
+
+        <!-- Wadah State Tampilan -->
+        <div class="view-state-container">
+          <!-- 1. State Loading: Skeleton -->
+          <div id="state-loading" class="skeleton-list" aria-label="Memuat data tugas...">
+            <div class="skeleton-item">
+              <div class="skeleton-checkbox"></div>
+              <div class="skeleton-content">
+                <div class="skeleton-line skeleton-title"></div>
+                <div class="skeleton-line skeleton-meta"></div>
+              </div>
+              <div class="skeleton-btn"></div>
+            </div>
+            <div class="skeleton-item">
+              <div class="skeleton-checkbox"></div>
+              <div class="skeleton-content">
+                <div class="skeleton-line skeleton-title"></div>
+                <div class="skeleton-line skeleton-meta"></div>
+              </div>
+              <div class="skeleton-btn"></div>
+            </div>
+            <div class="skeleton-item">
+              <div class="skeleton-checkbox"></div>
+              <div class="skeleton-content">
+                <div class="skeleton-line skeleton-title"></div>
+                <div class="skeleton-line skeleton-meta"></div>
+              </div>
+              <div class="skeleton-btn"></div>
+            </div>
+          </div>
+
+          <!-- 2. State Error: Banner Error dengan Tombol Coba Lagi -->
+          <div id="state-error" class="state-message state-error-box hidden" role="alert">
+            <div class="state-icon">📡</div>
+            <h3 class="state-title">Gagal Memuat Data</h3>
+            <p id="error-message" class="state-desc">Terjadi kesalahan saat menghubungi server.</p>
+            <button type="button" id="btn-retry" class="btn btn-secondary">
+              🔄 Coba Lagi
+            </button>
+          </div>
+
+          <!-- 3. State Kosong -->
+          <div id="state-empty" class="state-message hidden">
+            <div class="state-icon">📝</div>
+            <h3 class="state-title">Belum Ada Tugas</h3>
+            <p class="state-desc">Tidak ada tugas yang sesuai dengan filter atau belum ada tugas yang ditambahkan.</p>
+          </div>
+
+          <!-- 4. Daftar Tugas Aktual -->
+          <ul id="task-list" class="task-list" aria-live="polite"></ul>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>Praktikum Pemrograman Web C &bull; 5027251012 &bull; Task Tracker Kuliah v2</p>
+    </footer>
+  </div>
+</body>
+</html>
