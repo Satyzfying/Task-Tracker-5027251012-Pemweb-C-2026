@@ -114,7 +114,100 @@ function populateMatkulDropdown(matkulList) {
   });
 }
 
-// 4. Centralized UI Rendering & State Management
+// 4. Form Submission, Validasi & Feedback Server 400
+/**
+ * Mengatur event listener submit form tugas baru
+ * Meliputi validasi sisi klien, penonaktifan tombol, dan penanganan status 400
+ */
+function setupFormSubmission() {
+  const form = document.getElementById('form-tugas');
+  const inputJudul = document.getElementById('input-judul');
+  const selectMatkul = document.getElementById('select-matkul');
+  const inputDeadline = document.getElementById('input-deadline');
+  const submitBtn = document.getElementById('btn-submit');
+  const btnText = submitBtn?.querySelector('.btn-text');
+  const btnSpinner = submitBtn?.querySelector('.btn-spinner');
+  const formError = document.getElementById('form-error');
+  const formErrorText = document.getElementById('form-error-text');
+
+  if (!form || !submitBtn) return;
+
+  function showError(msg) {
+    if (formError && formErrorText) {
+      formErrorText.textContent = msg;
+      formError.classList.remove('hidden');
+    }
+  }
+
+  function hideError() {
+    if (formError) {
+      formError.classList.add('hidden');
+    }
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideError();
+
+    const judul = inputJudul?.value.trim() || '';
+    const matkulId = selectMatkul?.value.trim() || '';
+    const deadline = inputDeadline?.value.trim() || '';
+
+    // Validasi Sisi Klien
+    if (!judul || judul.length < 3) {
+      showError('Judul tugas wajib diisi dan minimal 3 karakter.');
+      inputJudul?.focus();
+      return;
+    }
+
+    if (!matkulId) {
+      showError('Silakan pilih mata kuliah yang sesuai.');
+      selectMatkul?.focus();
+      return;
+    }
+
+    if (!deadline) {
+      showError('Silakan tentukan tenggat waktu (deadline) tugas.');
+      inputDeadline?.focus();
+      return;
+    }
+
+    // Set status tombol: disabled dan teks Menyimpan...
+    submitBtn.disabled = true;
+    if (btnText) btnText.textContent = 'Menyimpan...';
+    if (btnSpinner) btnSpinner.classList.remove('hidden');
+
+    try {
+      const newTask = await api('/api/tugas', {
+        method: 'POST',
+        body: JSON.stringify({ judul, matkulId, deadline }),
+      });
+
+      // Sukses: perbarui state lokal dan render UI
+      state.tugas.unshift(newTask);
+      render();
+
+      // Reset field form
+      form.reset();
+      hideError();
+    } catch (err) {
+      console.error('[Form] Gagal menambahkan tugas:', err);
+      // Tangani respon status 400 dari backend atau error jaringan
+      const errorMsg =
+        err instanceof TypeError
+          ? 'Koneksi gagal atau jaringan offline. Tidak dapat menambahkan tugas.'
+          : err.message || 'Gagal menyimpan tugas baru.';
+      showError(errorMsg);
+    } finally {
+      // Pulihkan status tombol submit
+      submitBtn.disabled = false;
+      if (btnText) btnText.textContent = 'Tambah Tugas';
+      if (btnSpinner) btnSpinner.classList.add('hidden');
+    }
+  });
+}
+
+// 5. Centralized UI Rendering & State Management
 /**
  * Merender seluruh komponen antarmuka berdasarkan state terkini
  */
@@ -257,6 +350,9 @@ function renderTaskList(container, tasks) {
 
 // Inisialisasi awal saat dokumen selesai dimuat
 document.addEventListener('DOMContentLoaded', () => {
+  // Setup handler form
+  setupFormSubmission();
+
   // Tombol retry saat error
   const retryBtn = document.getElementById('btn-retry');
   if (retryBtn) {
