@@ -207,7 +207,125 @@ function setupFormSubmission() {
   });
 }
 
-// 5. Centralized UI Rendering & State Management
+// 5. Event Delegation untuk Mutasi State (PATCH & DELETE)
+/**
+ * Mengatur satu event listener terpusat pada parent <ul> menggunakan closest()
+ * Menangani toggle status checkbox (PATCH) dan hapus tugas (DELETE)
+ */
+function setupTaskListDelegation() {
+  const taskListEl = document.getElementById('task-list');
+  if (!taskListEl) return;
+
+  // Tangani event 'change' untuk checkbox status (PATCH)
+  taskListEl.addEventListener('change', async (e) => {
+    const checkbox = e.target.closest('[data-action="toggle"]');
+    if (!checkbox) return;
+
+    const taskItem = checkbox.closest('.task-item');
+    const taskId = taskItem?.dataset.id;
+    if (!taskId) return;
+
+    const task = state.tugas.find((t) => t.id === taskId);
+    if (!task) return;
+
+    const previousStatus = task.selesai;
+    const nextStatus = checkbox.checked;
+
+    // Kunci checkbox selama request berjalan
+    checkbox.disabled = true;
+
+    try {
+      const updatedTask = await api(`/api/tugas/${taskId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ selesai: nextStatus }),
+      });
+
+      // Update state dari response server
+      if (updatedTask && typeof updatedTask.selesai === 'boolean') {
+        task.selesai = updatedTask.selesai;
+      } else {
+        task.selesai = nextStatus;
+      }
+      render();
+    } catch (err) {
+      console.error(`[Task] Gagal memperbarui status tugas ${taskId}:`, err);
+      // Rollback status UI & state
+      checkbox.checked = previousStatus;
+      task.selesai = previousStatus;
+      render();
+
+      alert(
+        err instanceof TypeError
+          ? 'Koneksi gagal atau offline. Perubahan status dibatalkan.'
+          : err.message || 'Gagal memperbarui status tugas.'
+      );
+    } finally {
+      checkbox.disabled = false;
+    }
+  });
+
+  // Tangani event 'click' untuk tombol hapus (DELETE)
+  taskListEl.addEventListener('click', async (e) => {
+    const deleteBtn = e.target.closest('[data-action="delete"]');
+    if (!deleteBtn) return;
+
+    const taskItem = deleteBtn.closest('.task-item');
+    const taskId = taskItem?.dataset.id;
+    if (!taskId) return;
+
+    const taskIndex = state.tugas.findIndex((t) => t.id === taskId);
+    if (taskIndex === -1) return;
+
+    deleteBtn.disabled = true;
+
+    try {
+      // DELETE request mengharapkan respons HTTP 204 No Content
+      await api(`/api/tugas/${taskId}`, {
+        method: 'DELETE',
+      });
+
+      // Hapus dari state lokal dan render ulang
+      state.tugas.splice(taskIndex, 1);
+      render();
+    } catch (err) {
+      console.error(`[Task] Gagal menghapus tugas ${taskId}:`, err);
+      deleteBtn.disabled = false;
+      alert(
+        err instanceof TypeError
+          ? 'Koneksi gagal atau offline. Tugas tidak dapat dihapus.'
+          : err.message || 'Gagal menghapus tugas.'
+      );
+    }
+  });
+}
+
+// 6. Toolbar Filter (Semua / Aktif / Selesai)
+/**
+ * Mengatur filter button toolbar
+ */
+function setupFilterToolbar() {
+  const filterToolbar = document.getElementById('filter-toolbar');
+  if (!filterToolbar) return;
+
+  filterToolbar.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-filter');
+    if (!btn) return;
+
+    const filterType = btn.dataset.filter;
+    if (!filterType || state.filter === filterType) return;
+
+    state.filter = filterType;
+
+    // Update active class
+    filterToolbar.querySelectorAll('.btn-filter').forEach((b) => {
+      b.classList.toggle('active', b.dataset.filter === filterType);
+    });
+
+    render();
+  });
+}
+
+// 7. Centralized UI Rendering & State Management
 /**
  * Merender seluruh komponen antarmuka berdasarkan state terkini
  */
@@ -350,8 +468,10 @@ function renderTaskList(container, tasks) {
 
 // Inisialisasi awal saat dokumen selesai dimuat
 document.addEventListener('DOMContentLoaded', () => {
-  // Setup handler form
+  // Setup handler form & delegasi event
   setupFormSubmission();
+  setupTaskListDelegation();
+  setupFilterToolbar();
 
   // Tombol retry saat error
   const retryBtn = document.getElementById('btn-retry');
